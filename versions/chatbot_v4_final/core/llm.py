@@ -1,19 +1,19 @@
 import requests
-from core.config import OLLAMA_MODEL
+from core.config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
 
-def ollama(prompt):
+def ollama(prompt, model=OLLAMA_MODEL, temperature=0.2, top_p=0.9):
     response = requests.post(
-        "http://localhost:11434/api/generate",
+        OLLAMA_URL,
         json={
-            "model": OLLAMA_MODEL,
+            "model": model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": 0.2,
-                "top_p": 0.9
+                "temperature": temperature,
+                "top_p": top_p
             }
         },
-        timeout=120
+        timeout=OLLAMA_TIMEOUT
     )
 
     response.raise_for_status()
