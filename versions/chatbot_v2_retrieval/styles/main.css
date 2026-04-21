@@ -1,0 +1,62 @@
+/* Page background */
+.stApp {
+    background-color: #f5f7fb;
+}
+
+/* Main content area */
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    max-width: 850px;
+    background-color: #ffffff;
+    border-radius: 16px;
+    padding-left: 2rem;
+    padding-right: 2rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+    margin-top: 1.5rem;
+}
+
+/* Title */
+h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #1f3c88;
+    margin-bottom: 0.25rem;
+}
+
+/* Paragraph text */
+p {
+    color: #444444;
+    line-height: 1.6;
+}
+
+/* Text input */
+.stTextInput > div > div > input {
+    background-color: #f9fafc;
+    border: 1px solid #cfd6e4;
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    color: #222222;
+}
+
+/* Button */
+.stButton > button {
+    background-color: #1f3c88;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0.5rem 1.2rem;
+    font-weight: 600;
+}
+
+.stButton > button:hover {
+    background-color: #2a4da3;
+    color: white;
+}
+
+/* Answer area text */
+[data-testid="stMarkdownContainer"] p {
+    font-size: 1rem;
+    line-height: 1.7;
+    color: #222222;
+}
