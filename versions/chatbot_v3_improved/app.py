@@ -6,49 +6,19 @@ from sentence_transformers import SentenceTransformer
 
 from core.config import DB_DIR, COLLECTION
 from core.text_utils import clean_output
-from core.logging_utils import log_interaction, log_failed_query, log_feedback
 from core.llm import ollama
 from core.prompts import build_prompt
 from core.ui import load_css
 
-st.set_page_config(page_title="UEL Student Support Chatbot", layout="wide")
+st.set_page_config(page_title="UEL Student Support Chatbot V3", layout="wide")
 st.markdown(load_css("styles/main.css"), unsafe_allow_html=True)
 
 st.title("UEL Student Support Chatbot")
-
 st.markdown("""
-<div style="
-    background: rgba(255,255,255,0.05);
-    padding: 18px 20px;
-    border-radius: 20px;
-    border: 1px solid rgba(255,255,255,0.08);
-    margin-bottom: 20px;
-">
-    <h3 style="margin:0; color:white;">Welcome</h3>
-    <p style="margin:8px 0 0 0; color:#cdd6f4;">
-        Ask about enrolment, fees, assessments, deadlines, or student support services using official UEL documents.
-    </p>
+<div class="subtitle">
+    Improved prototype with grounded retrieval, cleaner answers, and source visibility.
 </div>
 """, unsafe_allow_html=True)
-
-with st.sidebar:
-    st.markdown("## Chatbot Info")
-    st.write("This chatbot uses official UEL documents to answer student questions.")
-    st.write("It does not guess or invent information.")
-    st.write("If the answer is not clearly supported by the documents, it will direct you to the Student Hub.")
-
-    st.markdown("## Common Topics")
-    st.write("- Enrolment")
-    st.write("- Tuition fees")
-    st.write("- Assessments")
-    st.write("- Extenuating circumstances")
-    st.write("- Student support")
-
-    if st.button("Clear Chat"):
-        st.session_state.chat = []
-        st.session_state.last_interaction = None
-        st.session_state.feedback_given = {}
-        st.rerun()
 
 
 @st.cache_resource
@@ -64,7 +34,6 @@ def load_collection():
 
 embedder = load_embedder()
 col = load_collection()
-
 
 FEE_KEYWORDS = {
     "fee", "fees", "tuition", "refund", "refunds", "deposit", "deposits",
@@ -89,10 +58,8 @@ def get_source_type(meta: dict) -> str:
 
     if "tuition-fees-policy" in source_file:
         return "policy"
-
     if "chatbot document" in source_file:
         return "support_doc"
-
     return "other"
 
 
@@ -164,7 +131,7 @@ def build_structured_context(results, fee_query: bool) -> str:
     other_chunks = []
 
     for item in results:
-        doc = item["doc"]
+        doc = clean_output(item["doc"])
         meta = item["meta"]
         source_file = meta.get("source_file", "Unknown source")
         section = meta.get("section", "")
@@ -188,7 +155,7 @@ def build_structured_context(results, fee_query: bool) -> str:
         parts.append("OFFICIAL POLICY CONTEXT (highest priority):\n\n" + "\n\n---\n\n".join(policy_chunks))
 
     if support_chunks:
-        parts.append("SUPPORT / STUDENT-FACING CONTEXT (use only if it does not contradict policy):\n\n" + "\n\n---\n\n".join(support_chunks))
+        parts.append("SUPPORT / STUDENT-FACING CONTEXT:\n\n" + "\n\n---\n\n".join(support_chunks))
 
     if not fee_query and policy_chunks:
         parts.append("ADDITIONAL POLICY CONTEXT:\n\n" + "\n\n---\n\n".join(policy_chunks))
@@ -208,138 +175,40 @@ def unique_sources(results):
     return seen
 
 
-if "chat" not in st.session_state:
-    st.session_state.chat = []
+q = st.text_input("Enter your question:")
 
-if "last_interaction" not in st.session_state:
-    st.session_state.last_interaction = None
+if st.button("Ask"):
+    if q.strip():
+        fee_query = is_fee_question(q)
 
-if "feedback_given" not in st.session_state:
-    st.session_state.feedback_given = {}
+        with st.spinner("Searching documents..."):
+            retrieved = retrieve(q, k=8)
+            ranked_results = rerank_results(retrieved, fee_query)
 
+        if ranked_results:
+            context = build_structured_context(ranked_results, fee_query)
+            sources = unique_sources(ranked_results)
+        else:
+            context = ""
+            sources = ["No matching source found"]
 
-for message in st.session_state.chat:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+        prompt = build_prompt(context=context, question=q, fee_query=fee_query)
 
-        if message["role"] == "assistant":
-            if message.get("sources"):
-                st.markdown('<div class="source-box"><b>Sources used</b>', unsafe_allow_html=True)
-                for s in message["sources"]:
-                    st.write(f"- {s}")
-                st.markdown("</div>", unsafe_allow_html=True)
+        start_time = time.time()
+        with st.spinner("Generating response..."):
+            raw_answer = ollama(prompt)
+        answer = clean_output(raw_answer)
+        response_time = round(time.time() - start_time, 2)
 
-            if message.get("response_time") is not None:
-                st.caption(f"Response time: {message['response_time']} seconds")
+        st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
-
-q = st.chat_input("Ask me anything about enrolment, fees, or university policies...")
-
-if q:
-    user_message = {
-        "role": "user",
-        "content": q
-    }
-    st.session_state.chat.append(user_message)
-
-    with st.chat_message("user"):
-        st.write(q)
-
-    fee_query = is_fee_question(q)
-    retrieved = retrieve(q, k=8)
-    ranked_results = rerank_results(retrieved, fee_query)
-
-    if ranked_results:
-        context = build_structured_context(ranked_results, fee_query)
-        sources = unique_sources(ranked_results)
-    else:
-        context = ""
-        sources = ["No matching source found"]
-
-    source_text = " | ".join(sources)
-    prompt = build_prompt(context=context, question=q, fee_query=fee_query)
-
-    start_time = time.time()
-    raw_answer = ollama(prompt)
-    answer = clean_output(raw_answer)
-    end_time = time.time()
-    response_time = round(end_time - start_time, 2)
-
-    success = 1
-    answer_lower = answer.lower()
-
-    if (
-        "i cannot confirm this from the provided uel documents" in answer_lower
-        or "i'm not fully sure based on the information i have" in answer_lower
-        or (not ranked_results)
-    ):
-        success = 0
-        log_failed_query(q, answer, "Automatic failure flag", source_text)
-
-    with st.chat_message("assistant"):
-        st.write(answer)
-
-        st.markdown('<div class="source-box"><b>Sources used</b>', unsafe_allow_html=True)
-        for s in sources:
-            st.write(f"- {s}")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="source-box"><strong>Sources used</strong><br>' +
+            "<br>".join([f"• {s}" for s in sources]) +
+            '</div>',
+            unsafe_allow_html=True
+        )
 
         st.caption(f"Response time: {response_time} seconds")
-
-    log_interaction(q, answer, response_time, success, source_text)
-
-    assistant_message = {
-        "role": "assistant",
-        "content": answer,
-        "sources": sources,
-        "response_time": response_time
-    }
-    st.session_state.chat.append(assistant_message)
-
-    st.session_state.last_interaction = {
-        "question": q,
-        "answer": answer,
-        "source": source_text,
-        "id": len(st.session_state.chat)
-    }
-
-
-last = st.session_state.last_interaction
-
-if last:
-    feedback_id = str(last["id"])
-
-    st.markdown("### Feedback")
-
-    if feedback_id not in st.session_state.feedback_given:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("Helpful", key=f"helpful_{feedback_id}"):
-                log_feedback(
-                    last["question"],
-                    last["answer"],
-                    "Helpful",
-                    last["source"]
-                )
-                st.session_state.feedback_given[feedback_id] = "Helpful"
-                st.success("Feedback saved.")
-
-        with col2:
-            if st.button("Not helpful", key=f"not_helpful_{feedback_id}"):
-                log_feedback(
-                    last["question"],
-                    last["answer"],
-                    "Not helpful",
-                    last["source"]
-                )
-                log_failed_query(
-                    last["question"],
-                    last["answer"],
-                    "User marked as not helpful",
-                    last["source"]
-                )
-                st.session_state.feedback_given[feedback_id] = "Not helpful"
-                st.warning("Feedback saved.")
     else:
-        st.info(f"Feedback recorded: {st.session_state.feedback_given[feedback_id]}")
+        st.warning("Enter a question")
